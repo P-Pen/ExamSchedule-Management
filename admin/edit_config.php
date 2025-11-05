@@ -152,43 +152,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         .subject-input { width: 90%; min-width: 60px; max-width: 180px; margin: 0 auto; }
         .subject-time-input { width: 90%; min-width: 120px; max-width: 180px; margin: 0 auto; }
         .card-title { display: flex; align-items: center; gap: 8px; }
+        .secondary-btn { background: #5c6bc0; }
+        .secondary-btn:hover { background: #3f51b5; }
+        .import-section { background: #f7faff; border: 1px dashed #b3c6e0; border-radius: 6px; padding: 18px 16px; }
+        .import-hint { margin: 0 0 12px 0; font-size: 14px; color: #56657f; }
+        .import-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; }
+        .import-textarea { width: 100%; min-height: 180px; padding: 12px; border: 1px solid #c5d6f2; border-radius: 4px; font-size: 14px; font-family: Consolas, "Courier New", monospace; resize: vertical; display: none; }
+        .import-footer { display: flex; align-items: center; gap: 16px; margin-top: 12px; flex-wrap: wrap; }
+        .hint { font-size: 13px; color: #d32f2f; min-height: 18px; display: inline-flex; align-items: center; }
+        .hint.success { color: #2e7d32; }
+        .hint.error { color: #d32f2f; }
+        .btn-label { margin-left: 6px; }
         @media (max-width: 900px) {
             .container { max-width: 99vw; padding: 10px; }
             input[type="text"], input[type="datetime-local"] { width: 98%; margin: 0 1%; }
+            .import-actions { flex-direction: column; align-items: stretch; }
+            .import-footer { flex-direction: column; align-items: flex-start; }
         }
     </style>
-    <script>
-    let isDirty = false;
-    function addRow() {
-        const tbody = document.getElementById('subjects-tbody');
-        const row = document.createElement('tr');
-        row.innerHTML = `
-            <td><input type="text" name="subject_name[]" required class="subject-input"></td>
-            <td><input type="datetime-local" name="subject_start[]" required class="subject-time-input"></td>
-            <td><input type="datetime-local" name="subject_end[]" required class="subject-time-input"></td>
-            <td class="actions">
-                <button type="button" class="md-btn del-btn" onclick="this.closest('tr').remove(); isDirty=true;">
-                    <span class="material-icons">delete</span>
-                </button>
-            </td>
-        `;
-        tbody.appendChild(row);
-        isDirty = true;
-    }
-    window.addEventListener('DOMContentLoaded', function() {
-        document.querySelectorAll('input,textarea').forEach(el => {
-            el.addEventListener('input', () => { isDirty = true; });
-        });
-        document.getElementById('edit-config-form').addEventListener('submit', () => { isDirty = false; });
-        document.getElementById('back-dashboard-btn').addEventListener('click', function(e) {
-            if (isDirty) {
-                if (!confirm('有未保存的更改，确定要返回吗？')) {
-                    e.preventDefault();
-                }
-            }
-        });
-    });
-    </script>
 </head>
 <body>
     <div class="navbar">
@@ -231,23 +212,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         </tr>
                     </thead>
                     <tbody id="subjects-tbody">
-                        <?php foreach ($examInfos as $i => $info): ?>
-                        <tr>
-                            <td><input type="text" name="subject_name[]" required class="subject-input" value="<?php echo htmlspecialchars($info['name']); ?>"></td>
-                            <td><input type="datetime-local" name="subject_start[]" required class="subject-time-input" value="<?php echo $info['start'] ? date('Y-m-d\TH:i:s', strtotime($info['start'])) : ''; ?>"></td>
-                            <td><input type="datetime-local" name="subject_end[]" required class="subject-time-input" value="<?php echo $info['end'] ? date('Y-m-d\TH:i:s', strtotime($info['end'])) : ''; ?>"></td>
-                            <td class="actions">
-                                <button type="button" class="md-btn del-btn" onclick="this.closest('tr').remove(); isDirty=true;">
-                                    <span class="material-icons">delete</span>
-                                </button>
-                            </td>
-                        </tr>
-                        <?php endforeach; ?>
+                        <!-- rows will be injected by script -->
                     </tbody>
                 </table>
-                <button type="button" class="md-btn add-btn" onclick="addRow()">
+                <button type="button" class="md-btn add-btn" id="add-subject-btn">
                     <span class="material-icons" style="vertical-align:middle;">add</span> 添加科目
                 </button>
+            </div>
+            <div class="input-group import-section">
+                <label>批量导入 JSON</label>
+                <p class="import-hint">可按 README 中的示例 JSON 一次性填充考试安排。</p>
+                <div class="import-actions">
+                    <button type="button" class="md-btn secondary-btn" id="json-file-btn">
+                        <span class="material-icons">upload_file</span>
+                        <span class="btn-label">上传 JSON 文件</span>
+                    </button>
+                    <button type="button" class="md-btn secondary-btn" id="json-text-toggle">
+                        <span class="material-icons">content_paste</span>
+                        <span class="btn-label">粘贴 JSON</span>
+                    </button>
+                </div>
+                <textarea id="json-textarea" class="import-textarea" placeholder='{"examName":"期末考试","message":"请提前10分钟进入考场","room":"room301","examInfos":[{"name":"数学","start":"2023-12-01T09:00:00","end":"2023-12-01T11:00:00"}]}'></textarea>
+                <div class="import-footer">
+                    <span id="import-msg" class="hint"></span>
+                    <button type="button" class="md-btn secondary-btn" id="apply-json-btn" style="display:none;">
+                        <span class="material-icons">check_circle</span>
+                        <span class="btn-label">应用到表单</span>
+                    </button>
+                </div>
+                <input type="file" id="json-file-input" accept="application/json" style="display:none;">
             </div>
             <button type="submit" class="md-btn">
                 <span class="material-icons" style="vertical-align:middle;">save</span> 保存
@@ -257,5 +250,231 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </a>
         </form>
     </div>
+    <script>
+    const initialExamInfos = <?php echo json_encode($examInfos, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
+    document.addEventListener('DOMContentLoaded', () => {
+        const subjectsTbody = document.getElementById('subjects-tbody');
+        const addSubjectBtn = document.getElementById('add-subject-btn');
+        const jsonTextToggle = document.getElementById('json-text-toggle');
+        const jsonTextArea = document.getElementById('json-textarea');
+        const applyJsonBtn = document.getElementById('apply-json-btn');
+        const jsonFileBtn = document.getElementById('json-file-btn');
+        const jsonFileInput = document.getElementById('json-file-input');
+        const importMsg = document.getElementById('import-msg');
+        const form = document.getElementById('edit-config-form');
+        const backBtn = document.getElementById('back-dashboard-btn');
+        const examNameInput = document.getElementById('examName');
+        const messageInput = document.getElementById('message');
+        const roomInput = document.getElementById('room');
+        const jsonToggleIcon = jsonTextToggle.querySelector('.material-icons');
+    const jsonToggleLabel = jsonTextToggle.querySelector('.btn-label');
+
+        let isDirty = false;
+
+        jsonTextArea.style.display = 'none';
+        function setDirty(value = true) {
+            isDirty = value;
+        }
+
+        document.addEventListener('input', event => {
+            if (!event.target.closest('#edit-config-form')) return;
+            if (event.target === jsonTextArea) return;
+            setDirty();
+        });
+
+        form.addEventListener('submit', () => setDirty(false));
+
+        backBtn.addEventListener('click', event => {
+            if (isDirty && !confirm('有未保存的更改，确定要返回吗？')) {
+                event.preventDefault();
+            }
+        });
+
+        function toDateTimeInputValue(value) {
+            if (!value) return '';
+            if (typeof value === 'string') {
+                const trimmed = value.trim();
+                if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(trimmed)) {
+                    return trimmed.slice(0, 19);
+                }
+            }
+            const date = new Date(value);
+            if (Number.isNaN(date.getTime())) return '';
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            const hours = String(date.getHours()).padStart(2, '0');
+            const minutes = String(date.getMinutes()).padStart(2, '0');
+            const seconds = String(date.getSeconds()).padStart(2, '0');
+            return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}`;
+        }
+
+        function createSubjectRow(info = {}) {
+            const row = document.createElement('tr');
+
+            const nameCell = document.createElement('td');
+            const nameInput = document.createElement('input');
+            nameInput.type = 'text';
+            nameInput.name = 'subject_name[]';
+            nameInput.required = true;
+            nameInput.className = 'subject-input';
+            nameInput.value = info.name || '';
+            nameCell.appendChild(nameInput);
+            row.appendChild(nameCell);
+
+            const startCell = document.createElement('td');
+            const startInput = document.createElement('input');
+            startInput.type = 'datetime-local';
+            startInput.name = 'subject_start[]';
+            startInput.required = true;
+            startInput.className = 'subject-time-input';
+            startInput.value = toDateTimeInputValue(info.start);
+            startCell.appendChild(startInput);
+            row.appendChild(startCell);
+
+            const endCell = document.createElement('td');
+            const endInput = document.createElement('input');
+            endInput.type = 'datetime-local';
+            endInput.name = 'subject_end[]';
+            endInput.required = true;
+            endInput.className = 'subject-time-input';
+            endInput.value = toDateTimeInputValue(info.end);
+            endCell.appendChild(endInput);
+            row.appendChild(endCell);
+
+            const actionCell = document.createElement('td');
+            actionCell.className = 'actions';
+            const deleteBtn = document.createElement('button');
+            deleteBtn.type = 'button';
+            deleteBtn.className = 'md-btn del-btn';
+            const deleteIcon = document.createElement('span');
+            deleteIcon.className = 'material-icons';
+            deleteIcon.textContent = 'delete';
+            deleteBtn.appendChild(deleteIcon);
+            deleteBtn.addEventListener('click', () => {
+                row.remove();
+                if (!subjectsTbody.querySelector('tr')) {
+                    addRow({}, false);
+                }
+                setDirty();
+            });
+            actionCell.appendChild(deleteBtn);
+            row.appendChild(actionCell);
+
+            return row;
+        }
+
+        function addRow(info = {}, markDirty = true) {
+            const row = createSubjectRow(info);
+            subjectsTbody.appendChild(row);
+            if (markDirty) {
+                setDirty();
+            }
+        }
+
+        function renderRows(infos = [], markDirty = true) {
+            subjectsTbody.innerHTML = '';
+            if (!infos.length) {
+                addRow({}, false);
+            } else {
+                infos.forEach(info => addRow(info, false));
+            }
+            if (markDirty) {
+                setDirty();
+            }
+        }
+
+        function clearImportMessage() {
+            importMsg.textContent = '';
+            importMsg.className = 'hint';
+        }
+
+        function showImportMessage(message, type = 'error') {
+            importMsg.textContent = message;
+            importMsg.className = `hint ${type}`;
+        }
+
+        function applyJsonConfig(config) {
+            if (!config || typeof config !== 'object') {
+                throw new Error('JSON 结构不正确');
+            }
+            if (!Array.isArray(config.examInfos) || !config.examInfos.length) {
+                throw new Error('examInfos 不能为空');
+            }
+
+            const normalizedInfos = config.examInfos.map(info => ({
+                name: info.name || '',
+                start: info.start || '',
+                end: info.end || ''
+            }));
+
+            if (config.examName) {
+                examNameInput.value = config.examName;
+            }
+            messageInput.value = config.message || '';
+            roomInput.value = config.room || '';
+
+            renderRows(normalizedInfos);
+            setDirty();
+        }
+
+        function handleJsonTextApply() {
+            clearImportMessage();
+            if (!jsonTextArea.value.trim()) {
+                showImportMessage('请先粘贴 JSON 文本。');
+                return;
+            }
+            try {
+                const config = JSON.parse(jsonTextArea.value);
+                applyJsonConfig(config);
+                showImportMessage('导入成功，已填充表单，可继续调整。', 'success');
+            } catch (error) {
+                showImportMessage(`解析失败：${error.message}`);
+            }
+        }
+
+        addSubjectBtn.addEventListener('click', () => addRow());
+
+        jsonTextToggle.addEventListener('click', () => {
+            const willShow = jsonTextArea.style.display === 'none';
+            jsonTextArea.style.display = willShow ? 'block' : 'none';
+            applyJsonBtn.style.display = willShow ? 'inline-flex' : 'none';
+            jsonToggleIcon.textContent = willShow ? 'close' : 'content_paste';
+            jsonToggleLabel.textContent = willShow ? '收起文本框' : '粘贴 JSON';
+            if (!willShow) {
+                jsonTextArea.value = '';
+                clearImportMessage();
+            }
+        });
+
+        applyJsonBtn.addEventListener('click', handleJsonTextApply);
+
+        jsonFileBtn.addEventListener('click', () => jsonFileInput.click());
+
+        jsonFileInput.addEventListener('change', event => {
+            clearImportMessage();
+            const file = event.target.files[0];
+            event.target.value = '';
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = e => {
+                try {
+                    const config = JSON.parse(e.target.result);
+                    applyJsonConfig(config);
+                    showImportMessage(`已从文件 "${file.name}" 导入。`, 'success');
+                } catch (error) {
+                    showImportMessage(`文件解析失败：${error.message}`);
+                }
+            };
+            reader.onerror = () => {
+                showImportMessage('读取文件时出错，请重试。');
+            };
+            reader.readAsText(file);
+        });
+
+        renderRows(Array.isArray(initialExamInfos) ? initialExamInfos : [], false);
+    });
+    </script>
 </body>
 </html>
