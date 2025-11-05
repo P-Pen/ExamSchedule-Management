@@ -12,7 +12,7 @@ $user = $_SESSION['user'];
     <meta charset="UTF-8">
     <title>后台管理</title>
     <link rel="stylesheet" href="../assets/md2-blue.css">
-    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <link href="https://fonts.googleapis.cn/icon?family=Material+Icons" rel="stylesheet">
     <style>
         body { font-family: Roboto, Arial, sans-serif; background: #f5f7fa; margin: 0; }
         .navbar { background: #1976d2; color: #fff; padding: 16px 24px; display: flex; align-items: center; position: relative; }

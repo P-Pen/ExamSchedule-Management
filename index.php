@@ -15,8 +15,8 @@ if (!file_exists($dbFile)) {
     <meta charset="UTF-8">
     <title>考试看板配置查询</title>
     <link rel="stylesheet" href="assets/md2-blue.css">
-    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.8.0/styles/github.min.css">
+    <link href="https://fonts.googleapis.cn/icon?family=Material+Icons" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/highlight.js/11.8.0/styles/github.min.css">
     <style>
         body { font-family: Roboto, Arial, sans-serif; background: #f5f7fa; margin: 0; }
         .navbar { background: #1976d2; color: #fff; padding: 16px 24px; display: flex; align-items: center; }
@@ -63,8 +63,8 @@ if (!file_exists($dbFile)) {
             </button>
         </form>
     </div>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/languages/json.min.js"></script>
+    <script src="https://cdn.bootcdn.net/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+    <script src="https://cdn.bootcdn.net/ajax/libs/highlight.js/11.8.0/languages/json.min.js"></script>
     <script>
     hljs.highlightAll();
     document.getElementById('configForm').addEventListener('submit', function(e) {
