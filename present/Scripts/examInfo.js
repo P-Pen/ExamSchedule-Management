@@ -1,363 +1,547 @@
 document.addEventListener("DOMContentLoaded", () => {
-    const examNameElem = document.getElementById("examName");
-    const messageElem = document.getElementById("message");
-    const currentTimeElem = document.getElementById("current-time");
-    const currentSubjectElem = document.getElementById("current-subject");
-    const examTimingElem = document.getElementById("exam-timing");
-    const remainingTimeElem = document.getElementById("remaining-time");
-    const statusElem = document.getElementById("status");
-    const examTableBodyElem = document.getElementById("exam-table-body");
-    const roomElem = document.getElementById("room");
-    const infoToggleBtn = document.getElementById("info-toggle-btn");
-    const paperInfoElem = document.getElementById("paper-info");
-    const examPapersElem = document.getElementById("exam-papers");
-    const answerSheetsElem = document.getElementById("answer-sheets");
-    let offsetTime = getCookie("offsetTime") || 0;
-    let showPaperInfo = getCookie("showPaperInfo") === "true";
-    let autoToggle = getCookie("autoToggle") === "true";
+    // 先把常用 DOM 节点收好，计时循环里就不用一遍遍找
+    const elements = {
+        examName: document.getElementById("examName"),
+        message: document.getElementById("message"),
+        currentTime: document.getElementById("current-time"),
+        currentSubject: document.getElementById("current-subject"),
+        examTiming: document.getElementById("exam-timing"),
+        remainingTime: document.getElementById("remaining-time"),
+        status: document.getElementById("status"),
+        examTableBody: document.getElementById("exam-table-body"),
+        room: document.getElementById("room"),
+        infoToggleBtn: document.getElementById("info-toggle-btn"),
+        paperInfo: document.getElementById("paper-info"),
+        reminderOverlay: document.getElementById("reminder-overlay")
+    };
 
-    // 初始化显示状态
-    if (showPaperInfo) {
-        currentSubjectElem.style.display = "none";
-        paperInfoElem.style.display = "block";
-    }
+    const countButtons = Array.from(document.querySelectorAll(".count-btn"));
+    const paperFieldIds = ["paper-count", "paper-pages", "sheet-count", "sheet-pages"];
+    const paperInputs = paperFieldIds.reduce((acc, id) => {
+        const input = document.getElementById(id);
+        if (input) acc[id] = input;
+        return acc;
+    }, {});
 
-    // 更新显示内容
-    function updateDisplay(isExamTime) {
-        if (autoToggle) {
-            // 在考试期间显示页数，其他时间显示表格
-            paperInfoElem.style.display = isExamTime ? "block" : "none";
-            currentSubjectElem.style.display = "block";
-        }
-    }
+    // 把页面状态放在一个地方，后面谁用都能拿到
+    const state = {
+        offsetSeconds: Number(getCookie("offsetTime")) || 0,
+        showPaperInfo: getCookie("showPaperInfo") === "true",
+        autoToggle: getCookie("autoToggle") === "true",
+        schedule: null,
+        timers: { clock: null, exam: null },
+        notifiedExamId: null,
+        statusCells: new Map()
+    };
 
-    infoToggleBtn.addEventListener("click", () => {
-        if (!autoToggle) {
-            showPaperInfo = !showPaperInfo;
-            paperInfoElem.style.display = showPaperInfo ? "block" : "none";
-            currentSubjectElem.style.display = "block";
-            setCookie("showPaperInfo", showPaperInfo, 365);
-        }
-    });
+    initializeVisibility();
+    setupEventListeners();
+    loadPaperInfo();
+    fetchData();
 
-    function fetchData() {
-        const urlParams = new URLSearchParams(window.location.search);
-        const configId = urlParams.get('configId');
-        
-        if (!configId) {
-            errorSystem.show('未提供配置ID，请从主页进入');
+    // 初始化一下显示状态，避免页面刚载入时闪屏
+    function initializeVisibility() {
+        if (!elements.paperInfo || !elements.currentSubject) {
             return;
         }
 
+        if (state.autoToggle) {
+            setPaperAndSubjectDisplay("none", "block");
+            return;
+        }
+
+        if (state.showPaperInfo) {
+            setPaperAndSubjectDisplay("block", "none");
+        } else {
+            setPaperAndSubjectDisplay("none", "block");
+        }
+    }
+
+    function setPaperAndSubjectDisplay(paperDisplay, subjectDisplay) {
+        if (elements.paperInfo) {
+            elements.paperInfo.style.display = paperDisplay;
+        }
+        if (elements.currentSubject) {
+            elements.currentSubject.style.display = subjectDisplay;
+        }
+    }
+
+    // 绑定各种交互；只在有实际变动时再去动 localStorage
+    function setupEventListeners() {
+        if (elements.infoToggleBtn) {
+            elements.infoToggleBtn.addEventListener("click", () => {
+                if (state.autoToggle) return;
+                state.showPaperInfo = !state.showPaperInfo;
+                setCookie("showPaperInfo", state.showPaperInfo, 365);
+                if (state.showPaperInfo) {
+                    setPaperAndSubjectDisplay("block", "block");
+                } else {
+                    setPaperAndSubjectDisplay("none", "block");
+                }
+            });
+        }
+
+        countButtons.forEach(btn => {
+            const target = paperInputs[btn.dataset.target];
+            if (!target) return;
+
+            btn.addEventListener("click", () => {
+                const action = btn.dataset.action;
+                const currentValue = parseInt(target.value, 10) || 0;
+                const nextValue = action === "increase" ? currentValue + 1 : Math.max(0, currentValue - 1);
+                target.value = nextValue;
+                updatePaperInfo();
+            });
+        });
+
+        Object.values(paperInputs).forEach(input => {
+            input.addEventListener("change", () => {
+                const value = parseInt(input.value, 10) || 0;
+                input.value = Math.max(0, value);
+                updatePaperInfo();
+            });
+        });
+    }
+
+    // 拉取后端配置，顺便把计时器都安排好，失败就提示给前台
+    function fetchData() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const configId = urlParams.get("configId");
+
+        if (!configId) {
+            errorSystem.show("未提供配置ID，请从主页进入");
+            return;
+        }
+
+        stopTimers();
+
         fetch(`/api/get_config.php?id=${encodeURIComponent(configId)}`)
-            .then(response => {
+            .then(async response => {
                 if (!response.ok) {
-                    return response.json().then(err => { throw err; });
+                    let errorMessage = "服务器响应异常";
+                    try {
+                        const errPayload = await response.json();
+                        if (errPayload && errPayload.message) {
+                            errorMessage = errPayload.message;
+                        }
+                    } catch (e) {
+                        // ignore parsing error and use default message
+                    }
+                    throw new Error(errorMessage);
                 }
                 return response.json();
             })
             .then(data => {
-                displayExamInfo(data);
+                state.schedule = normalizeSchedule(data);
+                displayExamInfo(state.schedule);
+                renderExamTable(state.schedule.examInfos);
                 updateCurrentTime();
-                updateExamInfo(data);
-                setInterval(() => updateCurrentTime(), 1000);
-                setInterval(() => updateExamInfo(data), 1000);
+                updateExamInfo();
+                startTimers();
             })
-            .catch(error => errorSystem.show('获取考试数据失败: ' + error.message));
+            .catch(error => errorSystem.show("获取考试数据失败: " + error.message));
+    }
+
+    // 预处理原始数据：补 ID、算时间，后面用着省心
+    function normalizeSchedule(data) {
+        const normalized = { ...data };
+        const rawExams = Array.isArray(data.examInfos) ? data.examInfos : [];
+
+        normalized.examInfos = rawExams
+            .map((exam, index) => {
+                const startDate = new Date(exam.start);
+                const endDate = new Date(exam.end);
+                if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+                    console.warn("无效的考试时间", exam);
+                    return null;
+                }
+                return {
+                    ...exam,
+                    id: exam.id ?? index,
+                    startDate,
+                    endDate,
+                    subjects: exam.name ? exam.name.split("/").map(name => name.trim()).filter(Boolean) : ["未命名科目"]
+                };
+            })
+            .filter(Boolean)
+            .sort((a, b) => a.startDate - b.startDate);
+
+        return normalized;
     }
 
     function displayExamInfo(data) {
         try {
-            const examNameText = data.examName;
-            const roomText = data.room || roomElem.textContent;
-            examNameElem.innerHTML = `${examNameText} <span id="room">${roomText}</span>`;
-            messageElem.textContent = data.message;
+            if (!data) return;
+            const existingTitleNode = elements.examName
+                ? Array.from(elements.examName.childNodes).find(node => node.nodeType === 3)
+                : null;
+            const currentTitle = existingTitleNode ? existingTitleNode.textContent.trim() : "";
+            const examNameText = data.examName || currentTitle;
+            const roomText = data.room || (elements.room ? elements.room.textContent : "");
+
+            if (elements.examName) {
+                const roomSpan = elements.room || document.createElement("span");
+                roomSpan.id = "room";
+                roomSpan.textContent = roomText;
+                elements.examName.textContent = examNameText ? `${examNameText} ` : "";
+                elements.examName.appendChild(roomSpan);
+                elements.room = roomSpan;
+            }
+
+            if (elements.message) {
+                elements.message.textContent = data.message || "";
+            }
         } catch (e) {
-            errorSystem.show('显示考试信息失败: ' + e.message);
+            errorSystem.show("显示考试信息失败: " + e.message);
         }
+    }
+
+    // 管一下计时器，别让 setInterval 开太多
+    function startTimers() {
+        stopTimers();
+        state.timers.clock = setInterval(updateCurrentTime, 1000);
+        state.timers.exam = setInterval(updateExamInfo, 1000);
+    }
+
+    // 清理旧计时器，重新拉数据时才不会叠罗汉
+    function stopTimers() {
+        Object.keys(state.timers).forEach(key => {
+            if (state.timers[key]) {
+                clearInterval(state.timers[key]);
+                state.timers[key] = null;
+            }
+        });
+    }
+
+    // 当前时间记得加上偏移量，别在各处重复算
+    function getNow() {
+        return new Date(Date.now() + state.offsetSeconds * 1000);
     }
 
     function updateCurrentTime() {
         try {
-            const now = new Date(new Date().getTime() + offsetTime * 1000);
-            currentTimeElem.textContent = now.toLocaleTimeString('zh-CN', { hour12: false });
+            if (!elements.currentTime) return;
+            const now = getNow();
+            elements.currentTime.textContent = now.toLocaleTimeString("zh-CN", { hour12: false });
         } catch (e) {
-            errorSystem.show('更新时间失败: ' + e.message);
+            errorSystem.show("更新时间失败: " + e.message);
         }
     }
 
-    function updateExamInfo(data) {
+    // 每秒跑一圈，把左侧状态和右侧表格都更新一下
+    function updateExamInfo() {
         try {
-            const now = new Date(new Date().getTime() + offsetTime * 1000);
-            let currentExam = null;
-            let nextExam = null;
-            let lastExam = null;
+            if (!state.schedule || !Array.isArray(state.schedule.examInfos)) return;
+            const now = getNow();
+            const { currentExam, nextExam, lastExam } = locateExamState(state.schedule.examInfos, now);
 
-            data.examInfos.forEach(exam => {
-                const start = new Date(exam.start);
-                const end = new Date(exam.end);
-                if (now >= start && now <= end) {
-                    currentExam = exam;
-                }
-                if (!currentExam && !nextExam && now < start) {
-                    nextExam = exam;
-                }
-                if (now > end && (!lastExam || end > new Date(lastExam.end))) {
-                    lastExam = exam;
-                    isnotificated = false;
-                }
-            });
-
-            // 清空原有内容
-            if (paperInfoElem) paperInfoElem.style.display = showPaperInfo ? "block" : "none";
-            if (currentSubjectElem) currentSubjectElem.style.display = showPaperInfo ? "none" : "block";
+            if (state.autoToggle && elements.paperInfo && elements.currentSubject) {
+                setPaperAndSubjectDisplay(currentExam ? "block" : "none", "block");
+            }
 
             if (currentExam) {
-                const currentStatus = `当前科目: ${currentExam.name}`;
-                if (!showPaperInfo) {
-                    currentSubjectElem.textContent = currentStatus;
-                }
-                currentSubjectElem.style.display = "block"; // 总是显示科目信息
-                paperInfoElem.style.display = showPaperInfo ? "block" : "none";
-
-                // 加载本地存储的页数信息
-                if (showPaperInfo) {
-                    // 加载本地保存的页数信息
-                    const paperCount = document.getElementById('paper-count');
-                    const paperPages = document.getElementById('paper-pages');
-                    const sheetCount = document.getElementById('sheet-count');
-                    const sheetPages = document.getElementById('sheet-pages');
-                    
-                    if (paperCount && paperPages && sheetCount && sheetPages) {
-                        try {
-                            const savedInfo = localStorage.getItem('paperInfo');
-                            if (savedInfo) {
-                                const info = JSON.parse(savedInfo);
-                                paperCount.value = info.paperCount || 0;
-                                paperPages.value = info.paperPages || 0;
-                                sheetCount.value = info.sheetCount || 0;
-                                sheetPages.value = info.sheetPages || 0;
-                            }
-                        } catch (e) {
-                            console.error('加载页数信息失败:', e);
-                        }
-                    }
-                }
-
-                if (examTimingElem) {
-                    examTimingElem.textContent = `起止时间: ${formatTimeWithoutSeconds(new Date(currentExam.start).toLocaleTimeString('zh-CN', { hour12: false }))} - ${formatTimeWithoutSeconds(new Date(currentExam.end).toLocaleTimeString('zh-CN', { hour12: false }))}`;
-                }
-
-                const remainingTime = (new Date(currentExam.end).getTime() - now.getTime() + 1000) / 1000;
-                const remainingHours = Math.floor(remainingTime / 3600);
-                const remainingMinutes = Math.floor((remainingTime % 3600) / 60);
-                const remainingSeconds = Math.floor(remainingTime % 60);
-                const remainingTimeText = `${remainingHours}时 ${remainingMinutes}分 ${remainingSeconds}秒`;
-
-                if (remainingHours === 0 && remainingMinutes <= 14) {
-                    if (remainingTimeElem) {
-                        remainingTimeElem.textContent = `倒计时: ${remainingTimeText}`;
-                        remainingTimeElem.style.color = "red";
-                        remainingTimeElem.style.fontWeight = "bold";
-                    }
-                    if (statusElem) {
-                        statusElem.textContent = "状态: 即将结束";
-                        statusElem.style.color = "red";
-                    }
-
-                    // 在剩余15分钟时显示提醒
-                    if (isnotificated === false && remainingMinutes === 14 && remainingSeconds === 59) {
-                        isnotificated = true;
-                        const overlay = document.getElementById('reminder-overlay');
-                        if (overlay) {
-                            overlay.classList.add('show');
-                            setTimeout(() => {
-                                overlay.classList.remove('show');
-                            }, 5000);
-                        }
-                    }
-                } else {
-                    if (remainingTimeElem) {
-                        remainingTimeElem.textContent = `剩余时间: ${remainingTimeText}`;
-                        remainingTimeElem.style.color = "#93b4f7";
-                        remainingTimeElem.style.fontWeight = "normal";
-                    }
-                    if (statusElem) {
-                        statusElem.textContent = "状态: 进行中";
-                        statusElem.style.color = "#5ba838";
-                    }
-                }
+                updateCurrentExamSection(currentExam, now);
             } else {
-                // 非考试时间，显示表格
-                updateDisplay(false);
-                if (lastExam && now < new Date(lastExam.end).getTime() + 60000) {
-                    if (currentSubjectElem) currentSubjectElem.textContent = `上场科目: ${lastExam.name}`;
-                    if (examTimingElem) examTimingElem.textContent = "";
-                    if (remainingTimeElem) remainingTimeElem.textContent = "";
-                    if (statusElem) {
-                        statusElem.textContent = "状态: 已结束";
-                        statusElem.style.color = "red";
-                    }
-                } else if (nextExam) {
-                    const timeUntilStart = ((new Date(nextExam.start).getTime() - now.getTime()) / 1000) + 1;
-                    const remainingHours = Math.floor(timeUntilStart / 3600);
-                    const remainingMinutes = Math.floor((timeUntilStart % 3600) / 60);
-                    const remainingSeconds = Math.floor(timeUntilStart % 60);
-                    const remainingTimeText = `${remainingHours}时 ${remainingMinutes}分 ${remainingSeconds}秒`;
+                updateNonExamSection(nextExam, lastExam, now);
+            }
 
-                    if (timeUntilStart <= 15 * 60) {
-                        currentSubjectElem.textContent = `即将开始: ${nextExam.name}`;
-                        remainingTimeElem.textContent = `倒计时: ${remainingTimeText}`;
-                        remainingTimeElem.style.color = "orange";
-                        remainingTimeElem.style.fontWeight = "bold";
-                        statusElem.textContent = "状态: 即将开始";
-                        statusElem.style.color = "#DBA014";
-                    } else {
-                        currentSubjectElem.textContent = `下一场科目: ${nextExam.name}`;
-                        remainingTimeElem.textContent = "";
-                        statusElem.textContent = "状态: 未开始";
-                        remainingTimeElem.style.fontWeight = "normal";
-                        statusElem.style.color = "#EAEE5B";
-                    }
+            updateExamStatuses(now);
+        } catch (e) {
+            console.error("更新考试信息失败:", e);
+            errorSystem.show("更新考试信息失败: " + e.message);
+        }
+    }
 
-                    examTimingElem.textContent = `起止时间: ${formatTimeWithoutSeconds(new Date(nextExam.start).toLocaleTimeString('zh-CN', { hour12: false }))} - ${formatTimeWithoutSeconds(new Date(nextExam.end).toLocaleTimeString('zh-CN', { hour12: false }))}`;
+    // 正在考试的逻辑，顺带处理 15 分钟提醒
+    function updateCurrentExamSection(exam, now) {
+        if (elements.currentSubject) {
+            elements.currentSubject.textContent = `当前科目: ${exam.name}`;
+        }
+
+        if (elements.examTiming) {
+            elements.examTiming.textContent = `起止时间: ${formatExamTimeRange(exam)}`;
+        }
+
+        const remainingSeconds = Math.max(0, Math.round((exam.endDate - now) / 1000));
+        const timeParts = splitTime(remainingSeconds);
+        const timeText = `${timeParts.hours}时 ${timeParts.minutes}分 ${timeParts.seconds}秒`;
+        const isClosingSoon = timeParts.hours === 0 && timeParts.minutes <= 14;
+
+        if (elements.remainingTime) {
+            elements.remainingTime.textContent = `${isClosingSoon ? "倒计时" : "剩余时间"}: ${timeText}`;
+            elements.remainingTime.style.color = isClosingSoon ? "red" : "#93b4f7";
+            elements.remainingTime.style.fontWeight = isClosingSoon ? "bold" : "normal";
+        }
+
+        if (elements.status) {
+            elements.status.textContent = `状态: ${isClosingSoon ? "即将结束" : "进行中"}`;
+            elements.status.style.color = isClosingSoon ? "red" : "#5ba838";
+        }
+
+        handleReminder(exam, remainingSeconds);
+    }
+
+    // 不在考试时的几种场景：快开始、刚结束、彻底空档
+    function updateNonExamSection(nextExam, lastExam, now) {
+        if (elements.examTiming) {
+            elements.examTiming.textContent = nextExam ? `起止时间: ${formatExamTimeRange(nextExam)}` : "";
+        }
+
+        if (nextExam) {
+            const secondsUntilStart = Math.max(0, Math.round((nextExam.startDate - now) / 1000));
+            const timeParts = splitTime(secondsUntilStart);
+            const timeText = `${timeParts.hours}时 ${timeParts.minutes}分 ${timeParts.seconds}秒`;
+            const isStartingSoon = secondsUntilStart <= 15 * 60;
+
+            if (elements.currentSubject) {
+                elements.currentSubject.textContent = `${isStartingSoon ? "即将开始" : "下一场科目"}: ${nextExam.name}`;
+            }
+
+            if (elements.remainingTime) {
+                if (isStartingSoon) {
+                    elements.remainingTime.textContent = `倒计时: ${timeText}`;
+                    elements.remainingTime.style.color = "orange";
+                    elements.remainingTime.style.fontWeight = "bold";
                 } else {
-                    if (currentSubjectElem) currentSubjectElem.textContent = "考试均已结束";
-                    if (examTimingElem) examTimingElem.textContent = "";
-                    if (remainingTimeElem) remainingTimeElem.textContent = "";
-                    if (statusElem) {
-                        statusElem.textContent = "状态: 空闲";
-                        statusElem.style.color = "#3946AF";
-                    }
+                    elements.remainingTime.textContent = "";
+                    elements.remainingTime.style.color = "#93b4f7";
+                    elements.remainingTime.style.fontWeight = "normal";
                 }
             }
 
-            examTableBodyElem.innerHTML = "";
-            
-            // 预处理日期和时间段
-            const dateGroups = {};
-            data.examInfos.forEach(exam => {
-                const start = new Date(exam.start);
-                const hour = start.getHours();
-                const dateStr = `${start.getMonth() + 1}月${start.getDate()}日<br>${hour < 12 ? '上午' : (hour < 18 ? '下午' : '晚上')}`;
-                
-                if (!dateGroups[dateStr]) {
-                    dateGroups[dateStr] = [];
-                }
-                dateGroups[dateStr].push(exam);
-            });
+            if (elements.status) {
+                elements.status.textContent = `状态: ${isStartingSoon ? "即将开始" : "未开始"}`;
+                elements.status.style.color = isStartingSoon ? "#DBA014" : "#EAEE5B";
+            }
 
-            // 生成表格
-            Object.entries(dateGroups).forEach(([dateStr, exams]) => {
-                let isFirstRow = true;
-                // 计算实际需要的行数（考虑科目名称中的斜杠）
-                const totalRows = exams.reduce((acc, exam) => {
-                    return acc + (exam.name.includes('/') ? exam.name.split('/').length : 1);
-                }, 0);
+            if (!isStartingSoon) {
+                state.notifiedExamId = null;
+            }
+            return;
+        }
 
-                exams.forEach(exam => {
-                    const start = new Date(exam.start);
-                    const end = new Date(exam.end);
-                    const now = new Date(new Date().getTime() + offsetTime * 1000);
+        if (lastExam && now - lastExam.endDate <= 60 * 1000) {
+            if (elements.currentSubject) {
+                elements.currentSubject.textContent = `上场科目: ${lastExam.name}`;
+            }
+            if (elements.status) {
+                elements.status.textContent = "状态: 已结束";
+                elements.status.style.color = "red";
+            }
+        } else {
+            if (elements.currentSubject) {
+                elements.currentSubject.textContent = "考试均已结束";
+            }
+            if (elements.status) {
+                elements.status.textContent = "状态: 空闲";
+                elements.status.style.color = "#3946AF";
+            }
+        }
 
-                    let status = "未开始";
-                    if (now < start) {
-                        status = now > new Date(start.getTime() - 15 * 60 * 1000) ? "即将开始" : "未开始";
-                    } else if (now > end) {
-                        status = "已结束";
-                    } else {
-                        status = "进行中";
+        if (elements.remainingTime) {
+            elements.remainingTime.textContent = "";
+            elements.remainingTime.style.fontWeight = "normal";
+            elements.remainingTime.style.color = "#93b4f7";
+        }
+
+        state.notifiedExamId = null;
+    }
+
+    function formatExamTimeRange(exam) {
+        const startText = formatTimeWithoutSeconds(exam.startDate.toLocaleTimeString("zh-CN", { hour12: false }));
+        const endText = formatTimeWithoutSeconds(exam.endDate.toLocaleTimeString("zh-CN", { hour12: false }));
+        return `${startText} - ${endText}`;
+    }
+
+    function splitTime(totalSeconds) {
+        const hours = Math.floor(totalSeconds / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        const seconds = Math.floor(totalSeconds % 60);
+        return { hours, minutes, seconds };
+    }
+
+    // 盖板提醒什么时候弹、什么时候收
+    function handleReminder(exam, remainingSeconds) {
+        if (!elements.reminderOverlay) return;
+
+        if (remainingSeconds <= 15 * 60 && remainingSeconds > 0) {
+            if (state.notifiedExamId !== exam.id) {
+                state.notifiedExamId = exam.id;
+                elements.reminderOverlay.classList.add("show");
+                setTimeout(() => {
+                    elements.reminderOverlay.classList.remove("show");
+                }, 5000);
+            }
+        } else if (remainingSeconds > 15 * 60) {
+            state.notifiedExamId = null;
+        } else if (remainingSeconds === 0) {
+            elements.reminderOverlay.classList.remove("show");
+        }
+    }
+
+    // 找出当前、下一场和上一场，交给 UI 自己决定怎么展示
+    function locateExamState(exams, now) {
+        const currentExam = exams.find(exam => now >= exam.startDate && now <= exam.endDate) || null;
+        let nextExam = null;
+        let lastExam = null;
+
+        for (const exam of exams) {
+            if (now < exam.startDate) {
+                nextExam = exam;
+                break;
+            }
+        }
+
+        for (let i = exams.length - 1; i >= 0; i--) {
+            if (now > exams[i].endDate) {
+                lastExam = exams[i];
+                break;
+            }
+        }
+
+        return { currentExam, nextExam, lastExam };
+    }
+
+    // 画右侧表格，同时把状态标签缓存下来，后续刷新更快
+    function renderExamTable(exams) {
+        if (!elements.examTableBody) return;
+        elements.examTableBody.replaceChildren();
+        state.statusCells.clear();
+
+        if (!exams.length) return;
+
+        const fragment = document.createDocumentFragment();
+        const groups = groupExamsByDate(exams);
+
+        groups.forEach(group => {
+            let isFirstRowForGroup = true;
+            const totalRows = group.exams.reduce((rows, exam) => rows + exam.subjects.length, 0);
+
+            group.exams.forEach(exam => {
+                exam.subjects.forEach((subject, index) => {
+                    const row = document.createElement("tr");
+
+                    if (isFirstRowForGroup) {
+                        const dateCell = document.createElement("td");
+                        dateCell.rowSpan = totalRows;
+                        dateCell.innerHTML = group.label;
+                        row.appendChild(dateCell);
+                        isFirstRowForGroup = false;
                     }
 
-                    // 处理包含斜杠的科目名称
-                    const subjects = exam.name.split('/');
-                    subjects.forEach((subject, index) => {
-                        const row = document.createElement("tr");
-                        let cells = '';
+                    const subjectCell = document.createElement("td");
+                    subjectCell.textContent = subject;
+                    row.appendChild(subjectCell);
 
-                        if (isFirstRow) {
-                            cells = `<td rowspan="${totalRows}">${dateStr}</td>`;
-                            isFirstRow = false;
-                        }
+                    if (index === 0) {
+                        const startCell = document.createElement("td");
+                        startCell.rowSpan = exam.subjects.length;
+                        startCell.textContent = formatTimeWithoutSeconds(exam.startDate.toLocaleTimeString("zh-CN", { hour12: false }));
+                        row.appendChild(startCell);
 
-                        // 仅在第一个科目行添加时间和状态
-                        if (index === 0) {
-                            cells += `
-                                <td>${subject.trim()}</td>
-                                <td rowspan="${subjects.length}">${formatTimeWithoutSeconds(start.toLocaleTimeString('zh-CN', { hour12: false }))}</td>
-                                <td rowspan="${subjects.length}">${formatTimeWithoutSeconds(end.toLocaleTimeString('zh-CN', { hour12: false }))}</td>
-                                <td rowspan="${subjects.length}"><span class="exam-status-tag exam-status-${status}">${status}</span></td>
-                            `;
-                        } else {
-                            cells += `<td>${subject.trim()}</td>`;
-                        }
+                        const endCell = document.createElement("td");
+                        endCell.rowSpan = exam.subjects.length;
+                        endCell.textContent = formatTimeWithoutSeconds(exam.endDate.toLocaleTimeString("zh-CN", { hour12: false }));
+                        row.appendChild(endCell);
 
-                        row.innerHTML = cells;
-                        examTableBodyElem.appendChild(row);
-                    });
+                        const statusCell = document.createElement("td");
+                        statusCell.rowSpan = exam.subjects.length;
+                        const statusTag = document.createElement("span");
+                        statusCell.appendChild(statusTag);
+                        row.appendChild(statusCell);
+                        state.statusCells.set(exam.id, { tag: statusTag, exam });
+                    }
+
+                    fragment.appendChild(row);
                 });
             });
-        } catch (e) {
-            console.error('更新考试信息失败:', e);
-            errorSystem.show('更新考试信息失败: ' + e.message);
-        }
+        });
+
+        elements.examTableBody.appendChild(fragment);
+        updateExamStatuses(getNow());
     }
 
-    // 添加页数控制处理
-    document.querySelectorAll('.count-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const target = document.getElementById(btn.dataset.target);
-            const action = btn.dataset.action;
-            const currentValue = parseInt(target.value) || 0;
-            
-            if (action === 'increase') {
-                target.value = currentValue + 1;
-            } else if (action === 'decrease' && currentValue > 0) {
-                target.value = currentValue - 1;
+    // 先按日期和上下午切分，好做表格的行合并
+    function groupExamsByDate(exams) {
+        const groupsMap = new Map();
+
+        exams.forEach(exam => {
+            const date = exam.startDate;
+            const periodLabel = getPeriodLabel(date.getHours());
+            const key = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}-${periodLabel}`;
+            if (!groupsMap.has(key)) {
+                const label = `${date.getMonth() + 1}月${date.getDate()}日<br>${periodLabel}`;
+                groupsMap.set(key, { label, exams: [] });
             }
-            
-            // 保存到localStorage
-            updatePaperInfo();
+            groupsMap.get(key).exams.push(exam);
         });
-    });
 
-    // 监听输入框直接输入
-    ['paper-count', 'paper-pages', 'sheet-count', 'sheet-pages'].forEach(id => {
-        const input = document.getElementById(id);
-        input.addEventListener('change', () => {
-            const value = parseInt(input.value) || 0;
-            input.value = Math.max(0, value); // 确保不小于0
-            updatePaperInfo();
+        return Array.from(groupsMap.values());
+    }
+
+    function getPeriodLabel(hour) {
+        if (hour < 12) return "上午";
+        if (hour < 18) return "下午";
+        return "晚上";
+    }
+
+    // 把缓存好的状态标签逐个更新
+    function updateExamStatuses(now = getNow()) {
+        state.statusCells.forEach(({ tag, exam }) => {
+            const status = resolveExamStatus(exam, now);
+            tag.textContent = status;
+            tag.className = `exam-status-tag exam-status-${status}`;
         });
-    });
+    }
 
+    // 算出考试处于哪个阶段，开考前 15 分钟提前改成“即将开始”
+    function resolveExamStatus(exam, now) {
+        if (now < exam.startDate) {
+            return now >= new Date(exam.startDate.getTime() - 15 * 60 * 1000) ? "即将开始" : "未开始";
+        }
+        if (now > exam.endDate) {
+            return "已结束";
+        }
+        return "进行中";
+    }
+
+    // 试卷/答题卡的数字随手存一下，下次刷新还能看到
     function updatePaperInfo() {
         const paperInfo = {
-            paperCount: parseInt(document.getElementById('paper-count').value) || 0,
-            paperPages: parseInt(document.getElementById('paper-pages').value) || 0,
-            sheetCount: parseInt(document.getElementById('sheet-count').value) || 0,
-            sheetPages: parseInt(document.getElementById('sheet-pages').value) || 0
+            paperCount: parseInt(paperInputs["paper-count"]?.value, 10) || 0,
+            paperPages: parseInt(paperInputs["paper-pages"]?.value, 10) || 0,
+            sheetCount: parseInt(paperInputs["sheet-count"]?.value, 10) || 0,
+            sheetPages: parseInt(paperInputs["sheet-pages"]?.value, 10) || 0
         };
-        localStorage.setItem('paperInfo', JSON.stringify(paperInfo));
+        localStorage.setItem("paperInfo", JSON.stringify(paperInfo));
     }
 
-    // 初始化加载保存的页数信息
+    // 页面刚起步时把旧数据填回去，兼容一路走来的字段命名
     function loadPaperInfo() {
         try {
-            const savedInfo = localStorage.getItem('paperInfo');
-            if (savedInfo) {
-                const info = JSON.parse(savedInfo);
-                document.getElementById('paper-count').value = info.paperCount || 0;
-                document.getElementById('paper-pages').value = info.paperPages || 0;
-                document.getElementById('sheet-count').value = info.sheetCount || 0;
-                document.getElementById('sheet-pages').value = info.sheetPages || 0;
-            }
+            const savedInfo = localStorage.getItem("paperInfo");
+            if (!savedInfo) return;
+            const info = JSON.parse(savedInfo);
+            Object.entries(paperInputs).forEach(([id, input]) => {
+                const key = idToCamel(id);
+                const storedValue = Object.prototype.hasOwnProperty.call(info, key)
+                    ? info[key]
+                    : Object.prototype.hasOwnProperty.call(info, id)
+                        ? info[id]
+                        : undefined;
+
+                if (storedValue !== undefined) {
+                    input.value = storedValue;
+                } else if (!input.value) {
+                    input.value = 0;
+                }
+            });
         } catch (e) {
-            console.error('加载页数信息失败:', e);
+            console.error("加载页数信息失败:", e);
         }
     }
 
-    loadPaperInfo();
-
-    fetchData();
+    function idToCamel(id) {
+        return id.split("-").map((part, index) => index === 0 ? part : part.charAt(0).toUpperCase() + part.slice(1)).join("");
+    }
 });
