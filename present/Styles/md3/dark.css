@@ -80,15 +80,15 @@ body::-webkit-scrollbar {
 
 .container {
     padding: 24px;
-    max-width: 1400px;
-    margin: auto;
+    max-width: min(95vw, 1600px);
+    margin: 24px auto;
     background-color: #2B2930;
     border-radius: 28px;
     box-shadow: 0 4px 8px rgba(0,0,0,0.2);
 }
 
 h1 {
-    font-size: 3.5rem;
+    font-size: clamp(2.4rem, 5vw, 3.5rem);
     font-weight: 400;
     text-align: left;
     margin-bottom: 16px;
@@ -99,14 +99,14 @@ h1 {
 }
 
 #room {
-    font-size: 3.5rem;
+    font-size: clamp(2.4rem, 5vw, 3.5rem);
     font-weight: 400;
     color: #E6E1E5;
     margin-left: 20px;
 }
 
 #message {
-    font-size: 1.8rem;
+    font-size: clamp(1.4rem, 2.2vw, 1.8rem);
     color: #D0BCFF;
     margin-bottom: 24px;
 }
@@ -114,21 +114,25 @@ h1 {
 .content {
     display: flex;
     justify-content: space-between;
+    align-items: stretch;
     gap: 24px;
+    flex-wrap: wrap;
 }
 
 .left-column, .right-column {
     display: flex;
     flex-direction: column;
     gap: 24px;
+    flex: 1 1 520px;
+    min-width: 320px;
 }
 
 .left-column {
-    width: 45%;
+    flex: 1 1 520px;
 }
 
 .right-column {
-    width: 50%;
+    flex: 1.2 1 640px;
 }
 
 .clock-section, .info-section, .right-column {
@@ -139,7 +143,7 @@ h1 {
 }
 
 #current-time {
-    font-size: 8rem;
+    font-size: clamp(4rem, 10vw, 8rem);
     text-align: center;
     color: #D0BCFF;
     margin: 0;
@@ -147,7 +151,7 @@ h1 {
 }
 
 #current-subject, #exam-timing, #remaining-time, #status {
-    font-size: 3rem;
+    font-size: clamp(1.6rem, 3vw, 3rem);
     margin: 16px 0;
     text-align: left;
     color: #E6E1E5;
@@ -165,7 +169,7 @@ table {
 
 th, td {
     padding: 1px;
-    font-size: 1.8rem;
+    font-size: clamp(1.2rem, 1.6vw, 1.8rem);
     text-align: center;
     border-bottom: 1px solid #4A4458;
 }
@@ -183,8 +187,39 @@ tr:hover {
 .exam-status-tag {
     padding: 2px 4px;
     border-radius: 3px;
-    font-size: 1.2rem;
+    font-size: clamp(1rem, 1.3vw, 1.2rem);
     font-weight: 500;
+}
+
+@media (max-width: 1200px) {
+    .content {
+        justify-content: center;
+    }
+    .left-column,
+    .right-column {
+        flex: 1 1 100%;
+        min-width: 0;
+    }
+}
+
+@media (max-width: 768px) {
+    .container {
+        padding: 16px;
+    }
+    h1 {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+    #message {
+        text-align: left;
+    }
+    #current-subject,
+    #exam-timing,
+    #remaining-time,
+    #status {
+        text-align: left;
+    }
 }
 
 .exam-status-进行中 {
@@ -589,7 +624,7 @@ input:checked + .slider:before {
 }
 
 #paper-info {
-    font-size: 3rem;
+    font-size: clamp(1.6rem, 3vw, 3rem);
     margin: 16px 0;
     text-align: left;
     color: #E6E1E5;

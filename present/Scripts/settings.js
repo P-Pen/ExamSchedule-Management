@@ -16,11 +16,20 @@ document.addEventListener("DOMContentLoaded", () => {
 
     let offsetTime = getCookie("offsetTime") || 0;
     let room = getCookie("room") || "";
-    let zoomLevel = getCookie("zoomLevel") || 1;
+    const MIN_USER_ZOOM = 0.5;
+    const MAX_USER_ZOOM = 2;
+
+    let zoomLevel = parseFloat(getCookie("zoomLevel"));
+    if (!Number.isFinite(zoomLevel) || zoomLevel <= 0) {
+        zoomLevel = 1;
+    }
+    zoomLevel = Math.min(MAX_USER_ZOOM, Math.max(MIN_USER_ZOOM, zoomLevel));
     let currentTheme = getCookie("currentTheme") || "ealg";
     let theme = getCookie("theme") || "dark";
     let isAutoToggle = getCookie("autoToggle") || false;
     let themeConfig = [];
+
+    document.body.dataset.userZoom = zoomLevel;
 
     offsetTime = parseInt(offsetTime);
     roomElem.textContent = room;
@@ -82,6 +91,10 @@ document.addEventListener("DOMContentLoaded", () => {
             offsetTime = parseInt(offsetTimeInput.value);
             room = roomInput.value;
             zoomLevel = parseFloat(zoomInput.value);
+            if (!Number.isFinite(zoomLevel) || zoomLevel <= 0) {
+                zoomLevel = 1;
+            }
+            zoomLevel = Math.min(MAX_USER_ZOOM, Math.max(MIN_USER_ZOOM, zoomLevel));
             theme = themeToggle.checked ? "light" : "dark";
             currentTheme = themeSelect.value;
             isAutoToggle = autoToggle.checked;
@@ -92,7 +105,12 @@ document.addEventListener("DOMContentLoaded", () => {
             setCookie("currentTheme", currentTheme, 365);
             setCookie("autoToggle", isAutoToggle, 365);
             roomElem.textContent = room;
-            document.body.style.zoom = zoomLevel;
+            document.body.dataset.userZoom = zoomLevel;
+            if (window.boardZoom) {
+                window.boardZoom.setUserZoom(zoomLevel);
+            } else {
+                window.dispatchEvent(new Event("boardZoomChange"));
+            }
             updateThemeLink();
             settingsModal.classList.add("fade-out");
             setTimeout(() => {
@@ -167,9 +185,11 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
 
-    try {
-        document.body.style.zoom = zoomLevel;
-    } catch (e) {
-        errorSystem.show('初始化缩放失败: ' + e.message);
-    }
+    window.addEventListener("load", () => {
+        if (window.boardZoom) {
+            window.boardZoom.setUserZoom(zoomLevel);
+        } else {
+            window.dispatchEvent(new Event("boardZoomChange"));
+        }
+    });
 });
