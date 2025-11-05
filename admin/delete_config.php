@@ -8,7 +8,8 @@ if (!isset($_GET['id'])) {
     header('Location: dashboard.php');
     exit;
 }
-$db = new SQLite3(__DIR__ . '/../data/exam.db');
+require_once __DIR__ . '/../config/database.php';
+$db = examDatabase();
 $stmt = $db->prepare('DELETE FROM configs WHERE id = :id');
 $stmt->bindValue(':id', $_GET['id'], SQLITE3_TEXT);
 $stmt->execute();

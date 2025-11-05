@@ -2,8 +2,10 @@
 session_start();
 $user = $_SESSION['user'] ?? null;
 
+require_once __DIR__ . '/config/database.php';
+
 // 检查数据库是否存在，不存在则跳转初始化
-$dbFile = __DIR__ . '/data/exam.db';
+$dbFile = examDatabasePath();
 if (!file_exists($dbFile)) {
     header('Location: data/init_db.php');
     exit;

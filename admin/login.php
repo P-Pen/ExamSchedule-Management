@@ -1,7 +1,8 @@
 <?php
 session_start();
+require_once __DIR__ . '/../config/database.php';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $db = new SQLite3(__DIR__ . '/../data/exam.db');
+    $db = examDatabase();
     $stmt = $db->prepare('SELECT * FROM users WHERE username = :username');
     $stmt->bindValue(':username', $_POST['username'], SQLITE3_TEXT);
     $result = $stmt->execute();

@@ -8,7 +8,8 @@ if (!isset($_GET['id']) || !preg_match('/^[a-zA-Z0-9_\-]+$/', $_GET['id'])) {
 }
 $configId = $_GET['id'];
 
-$db = new SQLite3(__DIR__ . '/../data/exam.db');
+require_once __DIR__ . '/../config/database.php';
+$db = examDatabase();
 $stmt = $db->prepare('SELECT content FROM configs WHERE id = :id');
 $stmt->bindValue(':id', $configId, SQLITE3_TEXT);
 $result = $stmt->execute();

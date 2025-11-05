@@ -55,6 +55,20 @@ ExamSchedule-Management 是一个基于 PHP + SQLite 的考试看板与排考管
    - 将项目目录部署到支持 PHP 的 Web 服务器。
    - 访问 `http://your-server/index.php` 进入主页。
 
+4. **可选环境变量**
+
+  支持通过以下环境变量定制 SQLite 数据文件的位置：
+
+  | 变量名 | 说明 | 默认值 |
+  | --- | --- | --- |
+  | `EXAM_DB_PATH` | 指定完整的数据库文件路径（最高优先级）。 | 空 |
+  | `EXAM_DB_DIR` | 指定数据库文件所在目录。与 `EXAM_DB_NAME` 联用。 | `项目根目录/data` |
+  | `EXAM_DB_NAME` | 指定数据库文件名。仅当未提供 `EXAM_DB_PATH` 时生效。 | `exam.db` |
+
+  - 若设置了 `EXAM_DB_PATH`，将直接使用该路径，忽略其他变量。
+  - 若仅设置 `EXAM_DB_DIR` 和/或 `EXAM_DB_NAME`，系统会按目录+文件名组合路径，并在目录不存在时尝试自动创建。
+  - 在命令行初始化或运行脚本时，可使用 `EXAM_DB_PATH=/var/data/exam.db php data/init_db.php` 的方式临时指定。
+
 ---
 
 ## 使用说明

@@ -4,7 +4,8 @@ if (!isset($_SESSION['user'])) {
     header('Location: index.php');
     exit;
 }
-$db = new SQLite3(__DIR__ . '/../data/exam.db');
+require_once __DIR__ . '/../config/database.php';
+$db = examDatabase();
 $res = $db->query('SELECT id, content, created_at FROM configs ORDER BY created_at DESC');
 $configs = [];
 while ($row = $res->fetchArray(SQLITE3_ASSOC)) {

@@ -1,12 +1,20 @@
 <?php
-$dbFile = __DIR__ . '/exam.db';
+require_once __DIR__ . '/../config/database.php';
+
+$dbFile = examDatabasePath();
 if (file_exists($dbFile)) {
     echo "数据库已存在，拒绝重复初始化。<br>";
     echo "<a href=\"../index.php\">返回首页</a>";
     exit;
 }
 
-$db = new SQLite3($dbFile);
+try {
+    $db = examDatabase();
+} catch (Throwable $exception) {
+    echo "数据库初始化失败：" . htmlspecialchars($exception->getMessage(), ENT_QUOTES) . "<br>";
+    echo "<a href=\"../index.php\">返回首页</a>";
+    exit;
+}
 $db->exec('CREATE TABLE IF NOT EXISTS configs (
     id TEXT PRIMARY KEY,
     content TEXT NOT NULL,

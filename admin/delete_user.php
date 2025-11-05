@@ -8,7 +8,8 @@ if (!isset($_GET['id'])) {
     header('Location: manage_users.php');
     exit;
 }
-$db = new SQLite3(__DIR__ . '/../data/exam.db');
+require_once __DIR__ . '/../config/database.php';
+$db = examDatabase();
 $stmt = $db->prepare('DELETE FROM users WHERE id = :id AND username != "admin"');
 $stmt->bindValue(':id', $_GET['id'], SQLITE3_INTEGER);
 $stmt->execute();
