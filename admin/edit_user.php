@@ -4,7 +4,8 @@ if (!isset($_SESSION['user']) || $_SESSION['user']['role'] !== 'admin') {
     header('Location: dashboard.php');
     exit;
 }
-$db = new SQLite3(__DIR__ . '/../data/exam.db');
+require_once __DIR__ . '/../config/database.php';
+$db = examDatabase();
 $id = $_GET['id'] ?? '';
 $isEdit = false;
 $username = '';
